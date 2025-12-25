@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Filters from "@/components/Filters";
 import ProfileCard from "@/components/ProfileCard";
 import type { Profile } from "@/types/profile";
@@ -21,7 +21,7 @@ function safeIncludes(a: string, b: string) {
   return a.toLowerCase().includes(b.toLowerCase());
 }
 
-// ✅ Fixed timestamp (no hydration randomness)
+// fixed timestamp (no hydration mismatch)
 const DEMO_NOW = "2025-01-01T00:00:00.000Z";
 
 const DEMO_PROFILES: Profile[] = [
@@ -84,56 +84,25 @@ const DEMO_PROFILES: Profile[] = [
   },
 ];
 
-type SP = Record<string, string | string[] | undefined>;
+export default function SearchClient() {
+  const sp = useSearchParams();
 
-function first(sp: SP, key: string) {
-  const v = sp[key];
-  if (Array.isArray(v)) return v[0] ?? "";
-  return v ?? "";
-}
-
-function buildQueryString(sp: SP) {
-  const usp = new URLSearchParams();
-  for (const [k, v] of Object.entries(sp)) {
-    if (Array.isArray(v)) v.forEach((x) => x != null && usp.append(k, String(x)));
-    else if (v != null) usp.set(k, String(v));
-  }
-  const s = usp.toString();
-  return s ? `?${s}` : "";
-}
-
-export default function SearchClient({ searchParams }: { searchParams: SP }) {
-  const router = useRouter();
-
+  // mount guard (avoid server/client mismatch)
   const [mounted, setMounted] = useState(false);
-  const [authed, setAuthed] = useState(false);
-
   useEffect(() => setMounted(true), []);
 
-  // ✅ Login required (Search is private)
-  useEffect(() => {
-    if (!mounted) return;
-    const s = getSession();
-    if (!s) {
-      const nextUrl = `/search${buildQueryString(searchParams)}`;
-      router.replace(`/auth/login?next=${encodeURIComponent(nextUrl)}`);
-      return;
-    }
-    setAuthed(true);
-  }, [mounted, router, searchParams]);
+  const q = (sp.get("q") ?? "").trim();
+  const gender = sp.get("gender") ?? "";
+  const denomination = sp.get("denomination") ?? "";
+  const motherTongue = sp.get("motherTongue") ?? "";
+  const country = (sp.get("country") ?? "").trim();
+  const state = (sp.get("state") ?? "").trim();
+  const city = (sp.get("city") ?? "").trim();
+  const minAge = Number(sp.get("minAge") ?? "") || 0;
+  const maxAge = Number(sp.get("maxAge") ?? "") || 0;
+  const sort = sp.get("sort") ?? "new";
 
-  const q = first(searchParams, "q").trim();
-  const gender = first(searchParams, "gender");
-  const denomination = first(searchParams, "denomination");
-  const motherTongue = first(searchParams, "motherTongue");
-  const country = first(searchParams, "country").trim();
-  const state = first(searchParams, "state").trim();
-  const city = first(searchParams, "city").trim();
-  const minAge = Number(first(searchParams, "minAge")) || 0;
-  const maxAge = Number(first(searchParams, "maxAge")) || 0;
-  const sort = first(searchParams, "sort") || "new";
-
-  // ✅ Require at least one filter (don’t show everything by default)
+  // at least one filter must be applied
   const hasAnyFilter = useMemo(() => {
     const g = gender && gender !== "Any";
     const d = denomination && denomination !== "Any";
@@ -147,13 +116,13 @@ export default function SearchClient({ searchParams }: { searchParams: SP }) {
   const isUser = session?.role === "USER";
 
   const base = useMemo(() => {
-    if (!mounted || !authed) return [] as Profile[];
+    if (!mounted) return [] as Profile[];
     const approved = listApprovedProfiles();
     return approved.length ? approved : DEMO_PROFILES;
-  }, [mounted, authed]);
+  }, [mounted]);
 
   const results = useMemo(() => {
-    if (!mounted || !authed) return [];
+    if (!mounted) return [];
     if (!hasAnyFilter) return [];
 
     let items = [...base];
@@ -191,14 +160,14 @@ export default function SearchClient({ searchParams }: { searchParams: SP }) {
     else items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
     return items;
-  }, [mounted, authed, hasAnyFilter, base, isUser, q, gender, denomination, motherTongue, country, state, city, minAge, maxAge, sort]);
+  }, [mounted, base, hasAnyFilter, q, gender, denomination, motherTongue, country, state, city, minAge, maxAge, sort, isUser]);
 
-  const usingDemo = mounted && authed && base.length === 3 && base[0]?.id?.startsWith("HB-120");
+  const usingDemo = mounted && base.length === 3 && base[0]?.id?.startsWith("HB-120");
 
-  if (!mounted || !authed) {
+  if (!mounted) {
     return (
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-slate-200">
-        Checking session...
+        Loading...
       </div>
     );
   }
