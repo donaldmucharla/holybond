@@ -5,8 +5,10 @@ export default function SearchPage() {
   return (
     <Suspense
       fallback={
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-slate-200">
-          Loading search...
+        <div className="mx-auto max-w-6xl px-4 py-10">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <div className="text-sm text-slate-600">Loading search…</div>
+          </div>
         </div>
       }
     >

@@ -93,9 +93,33 @@ export function seedAdminIfMissing() {
 export function getSession(): Session | null {
   return readJSON<Session | null>(STORAGE_KEYS.SESSION, null);
 }
+export function onSessionChange(cb: (session: Session | null) => void) {
+  if (typeof window === "undefined") return () => {};
+
+  const handler = () => cb(getSession());
+
+  window.addEventListener("hb:session", handler);
+
+  const storageHandler = (e: StorageEvent) => {
+    if (e.key === STORAGE_KEYS.SESSION) handler();
+  };
+  window.addEventListener("storage", storageHandler);
+
+  handler();
+
+  return () => {
+    window.removeEventListener("hb:session", handler);
+    window.removeEventListener("storage", storageHandler);
+  };
+}
 
 export function logout() {
   localStorage.removeItem(STORAGE_KEYS.SESSION);
+  emitSessionChanged();
+}
+
+export function clearSession() {
+  logout();
 }
 
 export function login(email: string, password: string) {
@@ -109,8 +133,12 @@ export function login(email: string, password: string) {
 
   const session: Session = { userId: user.id, email: user.email, role: user.role };
   writeJSON(STORAGE_KEYS.SESSION, session);
+
+  emitSessionChanged();
   return session;
 }
+
+
 
 export function registerUser(
   email: string,
@@ -153,6 +181,8 @@ export function registerUser(
 
   const session: Session = { userId: user.id, email: user.email, role: user.role };
   writeJSON(STORAGE_KEYS.SESSION, session);
+
+  emitSessionChanged();
   return { user, profile, session };
 }
 

@@ -1,237 +1,216 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Filters from "@/components/Filters";
 import ProfileCard from "@/components/ProfileCard";
 import type { Profile } from "@/types/profile";
-import { listApprovedProfiles, getSession, isBlocked } from "@/lib/auth";
+import { getSession, listApprovedProfiles, isBlocked } from "@/lib/auth";
 
-function ageFromDob(dob: string) {
-  const d = new Date(dob);
-  if (Number.isNaN(d.getTime())) return 0;
-  const now = new Date();
-  let age = now.getFullYear() - d.getFullYear();
-  const m = now.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
-  return Math.max(age, 0);
+export type SearchFilters = {
+  q: string;
+  gender: "" | "Male" | "Female";
+  denomination: string;
+  motherTongue: string;
+  country: string;
+  state: string;
+  city: string;
+  education: string;
+  profession: string;
+  minAge: string;
+  maxAge: string;
+};
+
+export const emptyFilters: SearchFilters = {
+  q: "",
+  gender: "",
+  denomination: "",
+  motherTongue: "",
+  country: "",
+  state: "",
+  city: "",
+  education: "",
+  profession: "",
+  minAge: "",
+  maxAge: "",
+};
+
+function normalize(s?: string) {
+  return (s || "").trim().toLowerCase();
 }
 
-function safeIncludes(a: string, b: string) {
-  return a.toLowerCase().includes(b.toLowerCase());
+function applyInitialFiltersFromQuery(sp: URLSearchParams): SearchFilters {
+  return {
+    q: sp.get("q") || "",
+    gender: (sp.get("gender") as SearchFilters["gender"]) || "",
+    denomination: sp.get("denomination") || "",
+    motherTongue: sp.get("motherTongue") || "",
+    country: sp.get("country") || "",
+    state: sp.get("state") || "",
+    city: sp.get("city") || "",
+    education: sp.get("education") || "",
+    profession: sp.get("profession") || "",
+    minAge: sp.get("minAge") || "",
+    maxAge: sp.get("maxAge") || "",
+  };
 }
-
-// ✅ Fixed timestamp to avoid hydration mismatch
-const DEMO_NOW = "2025-01-01T00:00:00.000Z";
-
-const DEMO_PROFILES: Profile[] = [
-  {
-    id: "HB-1201",
-    createdAt: DEMO_NOW,
-    updatedAt: DEMO_NOW,
-    status: "APPROVED",
-    fullName: "Anjali Reddy",
-    gender: "Female",
-    dob: "1999-06-15",
-    denomination: "CSI",
-    motherTongue: "Telugu",
-    country: "India",
-    state: "Telangana",
-    city: "Hyderabad",
-    education: "M.Tech",
-    profession: "Software Engineer",
-    aboutMe: "I value faith, family, and a peaceful lifestyle.",
-    partnerPreference: "God-fearing, kind, stable, and family oriented.",
-    photos: [],
-  },
-  {
-    id: "HB-1202",
-    createdAt: DEMO_NOW,
-    updatedAt: DEMO_NOW,
-    status: "APPROVED",
-    fullName: "Sam Johnson",
-    gender: "Male",
-    dob: "1997-02-01",
-    denomination: "Pentecostal",
-    motherTongue: "English",
-    country: "USA",
-    state: "Massachusetts",
-    city: "Boston",
-    education: "MS",
-    profession: "DevOps Engineer",
-    aboutMe: "Simple person, focused on faith and growth.",
-    partnerPreference: "Strong faith, respectful communication, shared goals.",
-    photos: [],
-  },
-  {
-    id: "HB-1203",
-    createdAt: DEMO_NOW,
-    updatedAt: DEMO_NOW,
-    status: "APPROVED",
-    fullName: "Maria Thomas",
-    gender: "Female",
-    dob: "1996-11-20",
-    denomination: "Baptist",
-    motherTongue: "Tamil",
-    country: "India",
-    state: "Tamil Nadu",
-    city: "Chennai",
-    education: "MBA",
-    profession: "Business Analyst",
-    aboutMe: "I enjoy church activities and helping people.",
-    partnerPreference: "Christ-centered, honest, supportive.",
-    photos: [],
-  },
-];
 
 export default function SearchClient() {
-  const sp = useSearchParams();
   const router = useRouter();
+  const sp = useSearchParams();
+  const [filters, setFilters] = useState<SearchFilters>(() =>
+    applyInitialFiltersFromQuery(new URLSearchParams(sp.toString()))
+  );
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // ✅ Mount guard (don’t touch localStorage until mounted)
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  // ✅ Login required for Search
-  const [authed, setAuthed] = useState(false);
+  // Auth gate (localStorage MVP)
   useEffect(() => {
-    if (!mounted) return;
-
     const s = getSession();
     if (!s) {
-      router.replace(`/auth/login?next=${encodeURIComponent("/search")}`);
-      return;
+      const next = `/search${window.location.search || ""}`;
+      router.replace(`/auth/login?next=${encodeURIComponent(next)}`);
     }
-    setAuthed(true);
-  }, [mounted, router]);
+  }, [router]);
 
-  const q = (sp.get("q") ?? "").trim();
-  const gender = sp.get("gender") ?? "";
-  const denomination = sp.get("denomination") ?? "";
-  const motherTongue = sp.get("motherTongue") ?? "";
-  const country = (sp.get("country") ?? "").trim();
-  const state = (sp.get("state") ?? "").trim();
-  const city = (sp.get("city") ?? "").trim();
-  const minAge = Number(sp.get("minAge") ?? "") || 0;
-  const maxAge = Number(sp.get("maxAge") ?? "") || 0;
-  const sort = sp.get("sort") ?? "new";
+  // Sync filters with URL changes (back/forward)
+  useEffect(() => {
+    setFilters(applyInitialFiltersFromQuery(new URLSearchParams(sp.toString())));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp.toString()]);
 
-  // ✅ must apply at least one filter, otherwise show nothing
-  const hasAnyFilter = useMemo(() => {
-    const g = gender && gender !== "Any";
-    const d = denomination && denomination !== "Any";
-    const m = motherTongue && motherTongue !== "Any";
-    const a = minAge > 0 || maxAge > 0;
-    const loc = !!country || !!state || !!city;
-    return !!q || g || d || m || loc || a;
-  }, [q, gender, denomination, motherTongue, country, state, city, minAge, maxAge]);
-
-  const session = useMemo(() => (mounted ? getSession() : null), [mounted]);
-  const isUser = session?.role === "USER";
-
-  const base = useMemo(() => {
-    if (!mounted || !authed) return [] as Profile[];
-    const approved = listApprovedProfiles();
-    return approved.length ? approved : DEMO_PROFILES;
-  }, [mounted, authed]);
-
-  const results = useMemo(() => {
-    if (!mounted || !authed) return [];
-    if (!hasAnyFilter) return [];
-
-    let items = [...base];
-
-    // Hide blocked profiles for USER role
-    if (isUser) {
-      items = items.filter((p) => {
-        try {
-          return !isBlocked(p.id);
-        } catch {
-          return true;
-        }
+  useEffect(() => {
+    setLoading(true);
+    try {
+      const s = getSession();
+      const all = listApprovedProfiles();
+      const visible = all.filter((p) => {
+        if (!s) return false;
+        if (s.role !== "ADMIN" && isBlocked(p.id)) return false;
+        return true;
       });
+      setProfiles(visible);
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    if (q) {
-      items = items.filter((p) => {
-        const hay = `${p.fullName} ${p.city} ${p.state} ${p.country} ${p.education} ${p.profession} ${p.denomination} ${p.motherTongue}`;
-        return safeIncludes(hay, q);
-      });
-    }
+  const filtered = useMemo(() => {
+    const q = normalize(filters.q);
+    const denom = normalize(filters.denomination);
+    const mt = normalize(filters.motherTongue);
+    const country = normalize(filters.country);
+    const state = normalize(filters.state);
+    const city = normalize(filters.city);
+    const edu = normalize(filters.education);
+    const prof = normalize(filters.profession);
 
-    if (gender && gender !== "Any") items = items.filter((p) => p.gender === gender);
-    if (denomination && denomination !== "Any") items = items.filter((p) => p.denomination === denomination);
-    if (motherTongue && motherTongue !== "Any") items = items.filter((p) => p.motherTongue === motherTongue);
+    const minAge = filters.minAge ? parseInt(filters.minAge, 10) : undefined;
+    const maxAge = filters.maxAge ? parseInt(filters.maxAge, 10) : undefined;
 
-    if (country) items = items.filter((p) => safeIncludes(p.country, country));
-    if (state) items = items.filter((p) => safeIncludes(p.state, state));
-    if (city) items = items.filter((p) => safeIncludes(p.city, city));
+    return profiles.filter((p) => {
+      if (filters.gender && p.gender !== filters.gender) return false;
 
-    if (minAge > 0) items = items.filter((p) => ageFromDob(p.dob) >= minAge);
-    if (maxAge > 0) items = items.filter((p) => ageFromDob(p.dob) <= maxAge);
+      if (denom && !normalize(p.denomination).includes(denom)) return false;
+      if (mt && !normalize(p.motherTongue).includes(mt)) return false;
 
-    if (sort === "age_asc") items.sort((a, b) => ageFromDob(a.dob) - ageFromDob(b.dob));
-    else if (sort === "age_desc") items.sort((a, b) => ageFromDob(b.dob) - ageFromDob(a.dob));
-    else items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+      if (country && !normalize(p.country).includes(country)) return false;
+      if (state && !normalize(p.state).includes(state)) return false;
+      if (city && !normalize(p.city).includes(city)) return false;
 
-    return items;
-  }, [mounted, authed, base, hasAnyFilter, q, gender, denomination, motherTongue, country, state, city, minAge, maxAge, sort, isUser]);
+      if (edu && !normalize(p.education).includes(edu)) return false;
+      if (prof && !normalize(p.profession).includes(prof)) return false;
 
-  const usingDemo = mounted && authed && base.length === 3 && base[0]?.id?.startsWith("HB-120");
+      if (typeof minAge === "number" || typeof maxAge === "number") {
+        const d = new Date(p.dob);
+        if (Number.isNaN(d.getTime())) return false;
+        const now = new Date();
+        let age = now.getFullYear() - d.getFullYear();
+        const m = now.getMonth() - d.getMonth();
+        if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+        if (typeof minAge === "number" && age < minAge) return false;
+        if (typeof maxAge === "number" && age > maxAge) return false;
+      }
 
-  if (!mounted || !authed) {
-    return (
-      <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-slate-200">
-        Checking session...
-      </div>
-    );
-  }
+      if (q) {
+        const hay = [
+          p.fullName,
+          p.city,
+          p.state,
+          p.country,
+          p.education,
+          p.profession,
+          p.denomination,
+          p.motherTongue,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        if (!normalize(hay).includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [filters, profiles]);
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-[28px] border border-white/10 bg-white/5 p-6 md:p-8">
-        <div className="text-2xl font-semibold text-white">Search Profiles</div>
-        <div className="mt-2 text-sm text-slate-400">
-          Use filters to find the right match. Profiles appear here after admin approval.
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Search</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            Browse approved Christian profiles and filter by location, education, and more.
+          </p>
         </div>
 
-        {usingDemo ? (
-          <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-sm text-amber-200">
-            Demo profiles are available for testing. Results will show only after you apply at least one filter.
-          </div>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => setFilters(emptyFilters)}
+          className="w-fit rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Reset
+        </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-12">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-4">
-          <Filters />
-        </div>
+          <Filters
+            // @ts-expect-error (keeps compatibility with your existing Filters props)
+            value={filters}
 
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex items-center justify-between rounded-3xl border border-white/10 bg-white/5 p-4">
-            <div className="text-sm text-slate-300">
-              Results: <span className="text-white font-semibold">{results.length}</span>
-            </div>
-            <div className="text-xs text-slate-500">
-              {hasAnyFilter ? "Tip: click “View” for full profile" : "Add filters and click Apply"}
+            onChange={setFilters}
+            onReset={() => setFilters(emptyFilters)}
+          />
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="text-sm font-semibold text-slate-900">Results</div>
+            <div className="mt-1 text-sm text-slate-600">
+              Showing <span className="font-semibold text-slate-900">{filtered.length}</span> of{" "}
+              <span className="font-semibold text-slate-900">{profiles.length}</span>
             </div>
           </div>
+        </div>
 
-          {!hasAnyFilter ? (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-10 text-center">
-              <div className="text-white font-semibold">No results yet</div>
-              <div className="mt-2 text-sm text-slate-400">
-                Choose at least one filter and click <span className="text-white font-semibold">Apply</span>.
-              </div>
+        <div className="lg:col-span-8">
+          {loading ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+              Loading profiles…
             </div>
-          ) : results.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-10 text-center">
-              <div className="text-white font-semibold">No profiles found</div>
-              <div className="mt-2 text-sm text-slate-400">Try changing age/location/denomination.</div>
+          ) : filtered.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6">
+              <div className="text-sm font-semibold text-slate-900">No matches</div>
+              <p className="mt-1 text-sm text-slate-600">
+                Try clearing filters or searching with fewer keywords.
+              </p>
+              <button
+                type="button"
+                onClick={() => setFilters(emptyFilters)}
+                className="mt-4 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Reset filters
+              </button>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {results.map((p) => (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {filtered.map((p) => (
                 <ProfileCard key={p.id} profile={p} />
               ))}
             </div>

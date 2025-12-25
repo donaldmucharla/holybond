@@ -1,152 +1,95 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { getSession, getMyProfile, logout } from "@/lib/auth";
-
-type Role = "USER" | "ADMIN";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { clearSession } from "@/lib/auth";
+import { useSession } from "@/hooks/useSession";
 
 export default function UserMenu() {
-  const pathname = usePathname(); // ✅ updates on every navigation
-  const [ready, setReady] = React.useState(false);
-  const [open, setOpen] = React.useState(false);
+  const router = useRouter();
+  const { session, profile } = useSession();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
 
-  const [role, setRole] = React.useState<Role | null>(null);
-  const [label, setLabel] = React.useState<string>("Account");
+  const displayName = useMemo(() => {
+    if (profile?.fullName) return profile.fullName;
+    if (session?.email) return session.email.split("@")[0] || "Account";
+    return "Account";
+  }, [profile?.fullName, session?.email]);
 
-  const sync = React.useCallback(() => {
-    const s = getSession();
-
-    if (!s) {
-      setRole(null);
-      setLabel("Account");
-      setReady(true);
-      return;
-    }
-
-    setRole(s.role);
-
-    if (s.role === "USER") {
-      const p = getMyProfile();
-      setLabel(p?.fullName?.trim() ? p.fullName : s.email);
-    } else {
-      setLabel("Admin");
-    }
-
-    setReady(true);
-  }, []);
-
-  // ✅ Run once on mount
-  React.useEffect(() => {
-    sync();
-  }, [sync]);
-
-  // ✅ Run again on every route change (after login redirect, etc.)
-  React.useEffect(() => {
-    sync();
-    setOpen(false);
-  }, [pathname, sync]);
-
-  // ✅ close dropdown when clicking outside
-  React.useEffect(() => {
+  useEffect(() => {
     function onDocClick(e: MouseEvent) {
-      const t = e.target as HTMLElement;
-      if (!t.closest("[data-usermenu]")) setOpen(false);
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  function doLogout() {
-    logout();
-    window.location.href = "/";
+  function onLogout() {
+    clearSession();
+    setOpen(false);
+    router.replace("/");
+    router.refresh();
   }
 
-  // ✅ avoid flicker
-  if (!ready) return <div className="h-9 w-[170px]" />;
-
-  // Not logged in
-  if (!role) {
+  if (!session) {
     return (
       <div className="flex items-center gap-2">
         <Link
           href="/auth/login"
-          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10 transition"
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
         >
           Login
         </Link>
         <Link
           href="/auth/register"
-          className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-200 transition"
+          className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
         >
-          Register Free
+          Register
         </Link>
       </div>
     );
   }
 
-  // Logged in
   return (
-    <div className="relative" data-usermenu>
+    <div className="relative" ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10 transition"
+        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
       >
-        <span className="max-w-[150px] truncate">{label}</span>
-        <span className={`transition ${open ? "rotate-180" : ""}`}>▾</span>
+        <span className="max-w-[160px] truncate">{displayName}</span>
+        <span className="text-slate-500">▾</span>
       </button>
 
       {open ? (
-        <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-xl">
-          <div className="px-4 py-3 text-xs text-slate-400 border-b border-white/10">
-            Signed in
+        <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+          <div className="px-4 py-3">
+            <div className="truncate text-sm font-semibold text-slate-900">{displayName}</div>
+            <div className="truncate text-xs text-slate-600">{session.email}</div>
           </div>
-
-          {role === "USER" ? (
-            <>
-              <Link href="/member" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Dashboard
-              </Link>
-              <Link href="/member/profile" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                My Profile
-              </Link>
-              <Link href="/member/settings" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Settings
-              </Link>
-              <Link href="/member/shortlist" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Shortlist
-              </Link>
-              <Link href="/member/interests" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Interests
-              </Link>
-              <Link href="/member/chat" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Chat
-              </Link>
-            </>
-          ) : (
-            <>
-              <Link href="/admin" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Admin Dashboard
-              </Link>
-              <Link href="/admin/approvals" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Approvals
-              </Link>
-              <Link href="/admin/reports" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Reports
-              </Link>
-              <Link href="/admin/users" className="block px-4 py-3 text-sm text-white hover:bg-white/10">
-                Users
-              </Link>
-            </>
-          )}
-
-          <div className="border-t border-white/10">
+          <div className="h-px bg-slate-100" />
+          <div className="p-1">
+            <Link
+              onClick={() => setOpen(false)}
+              href="/member/profile"
+              className="block rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Profile
+            </Link>
+            <Link
+              onClick={() => setOpen(false)}
+              href="/member/settings"
+              className="block rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Settings
+            </Link>
             <button
               type="button"
-              onClick={doLogout}
-              className="w-full px-4 py-3 text-left text-sm text-red-200 hover:bg-red-500/10"
+              onClick={onLogout}
+              className="block w-full rounded-xl px-3 py-2 text-left text-sm text-rose-700 hover:bg-rose-50"
             >
               Logout
             </button>
