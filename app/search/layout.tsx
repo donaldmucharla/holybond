@@ -1,5 +1,5 @@
-import RequireAuth from "@/components/RequireAuth";
+import type { ReactNode } from "react";
 
-export default function SearchLayout({ children }: { children: React.ReactNode }) {
-  return <RequireAuth>{children}</RequireAuth>;
+export default function SearchLayout({ children }: { children: ReactNode }) {
+  return <>{children}</>;
 }
