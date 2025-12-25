@@ -1,6 +1,9 @@
 import { Suspense } from "react";
 import SearchClient from "./SearchClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default function SearchPage() {
   return (
     <Suspense
