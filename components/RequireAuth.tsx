@@ -1,25 +1,31 @@
 "use client";
 
-import React from "react";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { getSession } from "@/lib/auth";
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const [ok, setOk] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const s = getSession();
+
     if (!s) {
-      router.replace(`/auth/login?next=${encodeURIComponent(pathname || "/search")}`);
+      // keep current page + query
+      const next =
+        typeof window !== "undefined"
+          ? window.location.pathname + window.location.search
+          : "/search";
+
+      router.replace(`/auth/login?next=${encodeURIComponent(next)}`);
       return;
     }
-    setOk(true);
-  }, [router, pathname]);
 
-  if (!ok) {
+    setReady(true);
+  }, [router]);
+
+  if (!ready) {
     return (
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-slate-200">
         Checking session...

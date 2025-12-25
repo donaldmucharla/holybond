@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Filters from "@/components/Filters";
 import ProfileCard from "@/components/ProfileCard";
 import type { Profile } from "@/types/profile";
@@ -21,7 +21,7 @@ function safeIncludes(a: string, b: string) {
   return a.toLowerCase().includes(b.toLowerCase());
 }
 
-// fixed timestamp (no hydration mismatch)
+// ✅ Fixed timestamp to avoid hydration mismatch
 const DEMO_NOW = "2025-01-01T00:00:00.000Z";
 
 const DEMO_PROFILES: Profile[] = [
@@ -86,10 +86,24 @@ const DEMO_PROFILES: Profile[] = [
 
 export default function SearchClient() {
   const sp = useSearchParams();
+  const router = useRouter();
 
-  // mount guard (avoid server/client mismatch)
+  // ✅ Mount guard (don’t touch localStorage until mounted)
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // ✅ Login required for Search
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => {
+    if (!mounted) return;
+
+    const s = getSession();
+    if (!s) {
+      router.replace(`/auth/login?next=${encodeURIComponent("/search")}`);
+      return;
+    }
+    setAuthed(true);
+  }, [mounted, router]);
 
   const q = (sp.get("q") ?? "").trim();
   const gender = sp.get("gender") ?? "";
@@ -102,7 +116,7 @@ export default function SearchClient() {
   const maxAge = Number(sp.get("maxAge") ?? "") || 0;
   const sort = sp.get("sort") ?? "new";
 
-  // at least one filter must be applied
+  // ✅ must apply at least one filter, otherwise show nothing
   const hasAnyFilter = useMemo(() => {
     const g = gender && gender !== "Any";
     const d = denomination && denomination !== "Any";
@@ -116,17 +130,18 @@ export default function SearchClient() {
   const isUser = session?.role === "USER";
 
   const base = useMemo(() => {
-    if (!mounted) return [] as Profile[];
+    if (!mounted || !authed) return [] as Profile[];
     const approved = listApprovedProfiles();
     return approved.length ? approved : DEMO_PROFILES;
-  }, [mounted]);
+  }, [mounted, authed]);
 
   const results = useMemo(() => {
-    if (!mounted) return [];
+    if (!mounted || !authed) return [];
     if (!hasAnyFilter) return [];
 
     let items = [...base];
 
+    // Hide blocked profiles for USER role
     if (isUser) {
       items = items.filter((p) => {
         try {
@@ -160,14 +175,14 @@ export default function SearchClient() {
     else items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
     return items;
-  }, [mounted, base, hasAnyFilter, q, gender, denomination, motherTongue, country, state, city, minAge, maxAge, sort, isUser]);
+  }, [mounted, authed, base, hasAnyFilter, q, gender, denomination, motherTongue, country, state, city, minAge, maxAge, sort, isUser]);
 
-  const usingDemo = mounted && base.length === 3 && base[0]?.id?.startsWith("HB-120");
+  const usingDemo = mounted && authed && base.length === 3 && base[0]?.id?.startsWith("HB-120");
 
-  if (!mounted) {
+  if (!mounted || !authed) {
     return (
       <div className="rounded-3xl border border-white/10 bg-white/5 p-6 text-slate-200">
-        Loading...
+        Checking session...
       </div>
     );
   }

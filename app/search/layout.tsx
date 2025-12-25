@@ -1,4 +1,3 @@
-import React from "react";
 import RequireAuth from "@/components/RequireAuth";
 
 export default function SearchLayout({ children }: { children: React.ReactNode }) {
