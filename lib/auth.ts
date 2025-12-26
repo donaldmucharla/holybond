@@ -218,9 +218,24 @@ export function updateMyProfile(patch: Partial<Profile>) {
 
   const existing = profiles[idx];
 
-  // ✅ If the ONLY thing being updated is photos, don't force profile back to PENDING.
-  const keys = Object.keys(patch ?? {});
-  const onlyPhotosUpdate = keys.length > 0 && keys.every((k) => k === "photos");
+  // ✅ treat as "photos only" if there are no meaningful changes except photos
+  const IGNORE_KEYS = new Set(["id", "createdAt", "updatedAt", "status", "photos"]);
+  const patchKeys = Object.keys(patch ?? {});
+
+  const hasMeaningfulNonPhotoChange = patchKeys.some((k) => {
+    if (IGNORE_KEYS.has(k)) return false;
+
+    const nextVal = (patch as any)[k];
+    if (typeof nextVal === "undefined") return false;
+
+    const prevVal = (existing as any)[k];
+
+    // compare primitives/strings
+    return JSON.stringify(nextVal) !== JSON.stringify(prevVal);
+  });
+
+  const isPhotosOnlyUpdate =
+    patchKeys.includes("photos") && hasMeaningfulNonPhotoChange === false;
 
   const updated: Profile = {
     ...existing,
@@ -231,8 +246,11 @@ export function updateMyProfile(patch: Partial<Profile>) {
 
     updatedAt: new Date().toISOString(),
 
-    // ✅ Only re-approval when non-photo profile fields changed
-    status: existing.status === "APPROVED" && !onlyPhotosUpdate ? "PENDING" : existing.status,
+    // ✅ Keep APPROVED if this update is only photos
+    status:
+      existing.status === "APPROVED" && !isPhotosOnlyUpdate
+        ? "PENDING"
+        : existing.status,
   };
 
   profiles[idx] = updated;
@@ -243,14 +261,12 @@ export function updateMyProfile(patch: Partial<Profile>) {
     throw new Error("Storage limit exceeded. Upload smaller photos (or fewer).");
   }
 
-  // ✅ notify UI instantly
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("hb:profiles"));
   }
 
   return updated;
 }
-
 
 
 // -------------------- Admin Approvals --------------------
