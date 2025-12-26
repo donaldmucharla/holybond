@@ -218,6 +218,10 @@ export function updateMyProfile(patch: Partial<Profile>) {
 
   const existing = profiles[idx];
 
+  // ✅ If the ONLY thing being updated is photos, don't force profile back to PENDING.
+  const keys = Object.keys(patch ?? {});
+  const onlyPhotosUpdate = keys.length > 0 && keys.every((k) => k === "photos");
+
   const updated: Profile = {
     ...existing,
     ...patch,
@@ -226,7 +230,9 @@ export function updateMyProfile(patch: Partial<Profile>) {
     photos: patch.photos ?? existing.photos ?? [],
 
     updatedAt: new Date().toISOString(),
-    status: existing.status === "APPROVED" ? "PENDING" : existing.status,
+
+    // ✅ Only re-approval when non-photo profile fields changed
+    status: existing.status === "APPROVED" && !onlyPhotosUpdate ? "PENDING" : existing.status,
   };
 
   profiles[idx] = updated;
@@ -234,12 +240,17 @@ export function updateMyProfile(patch: Partial<Profile>) {
   try {
     writeJSON(STORAGE_KEYS.PROFILES, profiles);
   } catch (e: any) {
-    // ✅ QuotaExceededError happens when base64 images exceed ~5MB localStorage
     throw new Error("Storage limit exceeded. Upload smaller photos (or fewer).");
+  }
+
+  // ✅ notify UI instantly
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("hb:profiles"));
   }
 
   return updated;
 }
+
 
 
 // -------------------- Admin Approvals --------------------
